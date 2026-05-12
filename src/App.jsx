@@ -5,11 +5,21 @@ import {
   Calendar, Thermometer, FileText, Droplets, Camera, Sparkles, Package, 
   Hammer, ChevronDown, User, Car, Database, CreditCard, BadgeCheck, 
   Map as MapIcon, Shield, AlertTriangle, LocateFixed, Loader2, Play, Square, Navigation,
-  Trash2, Pencil 
+  Trash2, Pencil, RotateCw, MoveHorizontal
 } from 'lucide-react';
 
-// Constants
-const CAR_IMAGE = "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&q=80&w=1000";
+// ==========================================
+// CẤU HÌNH ẢNH 360 ĐỘ (Local Storage)
+// ==========================================
+// Dòng code này sẽ tự động tạo ra một mảng gồm 75 đường link:
+// ["/car360/1.jpg", "/car360/2.jpg", ..., "/car360/75.jpg"]
+// Yêu cầu: Bạn phải bỏ 75 tấm ảnh vào thư mục: public/car360/
+const CAR_360_IMAGES = Array.from({ length: 75 }, (_, i) => `/car360/${i + 1}.jpg`);
+// Nếu bạn dùng đuôi .png thì đổi '.jpg' thành '.png' ở dòng trên.
+
+// Fallback nếu thư mục public chưa có ảnh (sẽ dùng 1 ảnh tĩnh từ mạng)
+const FALLBACK_IMAGE = ["https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&q=80&w=1000"];
+
 const DEFAULT_DIESEL_PRICE = 20500; 
 
 // Helper func
@@ -57,7 +67,7 @@ export default function App() {
     { id: 2, date: '10/05/2026', time: '08:15', duration: '1h 20m', distance: 35.0, from: 'TP.HCM', to: 'Biên Hòa' }
   ]);
 
-  // State Hành trình hiện tại (Đưa ra global để không bị mất khi tắt popup)
+  // State Hành trình hiện tại
   const [isRecordingTrip, setIsRecordingTrip] = useState(false);
   const [ongoingTrip, setOngoingTrip] = useState({
     timer: 0,
@@ -70,6 +80,7 @@ export default function App() {
   
   const [editingTrip, setEditingTrip] = useState(null);
 
+  // Timer logic
   useEffect(() => {
     let interval = null;
     if (isRecordingTrip && !ongoingTrip.isReviewing) {
@@ -103,6 +114,7 @@ export default function App() {
     return alerts.sort((a, b) => (a.status === 'expired' ? -1 : 1));
   }, [inspectionData, roadFeeData, insuranceData, hullInsuranceData]);
 
+  // Handlers
   const handleAddRecord = (record) => {
     setRecords(prev => [{ ...record, id: Date.now() }, ...prev]);
     if (record.type === 'fuel') {
@@ -226,7 +238,7 @@ export default function App() {
         {editMode === 'vehicle_details' && <VehicleModule vehicleName={vehicleName} plateNumber={plateNumber} insuranceData={insuranceData} licenseData={licenseData} registrationData={registrationData} inspectionData={inspectionData} roadFeeData={roadFeeData} hullInsuranceData={hullInsuranceData} onClose={() => setEditMode(null)} onSave={(d) => { setVehicleName(d.name); setPlateNumber(d.plate); setInsuranceData(d.insurance); setLicenseData(d.license); setRegistrationData(d.registration); setInspectionData(d.inspection); setRoadFeeData(d.roadFee); setHullInsuranceData(d.hullInsurance); setEditMode(null); }} />}
         {editMode === 'capacity' && <EditSettingModule title="Dung tích bình" icon={<Droplets size={24}/>} value={tankCapacity} type="number" suffix="Lít" onClose={() => setEditMode(null)} onSave={(v) => { setTankCapacity(Number(v) || 0); setEditMode(null); }} />}
         
-        {/* CSS Animation for Marquee & Others */}
+        {/* CSS Animation */}
         <style>{`
           @keyframes marquee {
             0% { transform: translateX(0%); }
@@ -260,6 +272,9 @@ export default function App() {
 // DASHBOARD VIEW
 // ----------------------------------------------------------------------
 function DashboardView({ userName, fuelPercentage, currentFuelLiters, reminders, isRecordingTrip, ongoingTimer, lastTrip, isReviewing, onSelectModule }) {
+  // Dùng state để fallback nếu local chưa có ảnh
+  const [useFallback, setUseFallback] = useState(false);
+
   return (
     <div className="px-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-center mt-4">
@@ -294,10 +309,11 @@ function DashboardView({ userName, fuelPercentage, currentFuelLiters, reminders,
         </div>
       )}
 
-      <div className="relative mt-5 h-48 flex items-center justify-center">
-        <div className="absolute inset-0 slanted-stripe -z-10 rounded-3xl"></div>
-        <img src={CAR_IMAGE} alt="Xe" className="w-[85%] h-auto object-contain drop-shadow-xl" />
-      </div>
+      {/* 360 VIEWER CỦA BẠN NẰM Ở ĐÂY */}
+      <Car360Viewer 
+        images={useFallback ? FALLBACK_IMAGE : CAR_360_IMAGES} 
+        onError={() => setUseFallback(true)} 
+      />
 
       <div className="mt-4 bg-slate-900 rounded-[30px] p-5 text-white flex justify-between items-center shadow-lg">
         <div className="flex items-center gap-4">
@@ -371,6 +387,7 @@ function TripMainView({ trips, isRecording, onStartTrip, onDeleteTrip, onEditTri
                     <p className="text-[10px] font-black text-slate-400 uppercase">{t.date} • {t.time}</p>
                     <span className="inline-block mt-1 bg-blue-50 text-blue-600 text-[10px] font-bold px-2 py-0.5 rounded-lg">{t.distance} km</span>
                   </div>
+                  {/* Nút Sửa & Xóa */}
                   <div className="flex items-center gap-3 bg-slate-50 p-1.5 rounded-xl">
                     <button onClick={() => onEditTrip(t)} className="text-slate-400 hover:text-blue-500 transition-colors p-1"><Pencil size={14}/></button>
                     <div className="w-px h-3 bg-slate-200"></div>
@@ -654,7 +671,7 @@ function SettingsView({ tankCapacity, vehicleName, plateNumber, userName, userAv
          </div>
          <div className="flex-1">
             <h3 className="font-bold text-slate-800 text-lg">{userName}</h3>
-            <div className="flex items-center gap-1.5 mt-0.5" onClick={(e) => { e.stopPropagation(); onEdit('vehicle_details'); }}>
+            <div className="flex items-center gap-1.5 mt-0.5 cursor-pointer hover:opacity-80 transition-all w-max px-2 -ml-2 py-1 rounded-lg" onClick={(e) => { e.stopPropagation(); onEdit('vehicle_details'); }}>
                <Car size={12} className="text-slate-400" />
                <p className="text-[11px] font-bold text-slate-500">{vehicleName} • <span className="text-slate-400">{plateNumber}</span></p>
             </div>
@@ -664,10 +681,10 @@ function SettingsView({ tankCapacity, vehicleName, plateNumber, userName, userAv
 
       <div className="space-y-6 pb-8">
          <SettingsGroup title="Cấu hình xe">
-            <button onClick={() => onEdit('vehicle_details')} className="w-full flex items-center justify-between p-4 px-5 border-b border-slate-50 active:bg-slate-50 transition-colors text-left">
+            <button onClick={() => onEdit('vehicle_details')} className="w-full flex items-center justify-between p-4 px-5 border-b border-slate-50 active:bg-slate-50 transition-colors text-left group">
                <div className="flex items-center gap-4">
-                  <div className="text-slate-500 bg-slate-50 p-2.5 rounded-xl relative"><Car size={20}/>{remindersCount > 0 && <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 border-2 border-white rounded-full"></div>}</div>
-                  <div><span className="font-bold text-[14px] text-slate-800 block leading-tight">Thông tin xe & Giấy tờ</span><span className="font-medium text-[11px] text-slate-400 mt-0.5 block">Bảo hiểm, đăng kiểm...</span></div>
+                  <div className="text-slate-500 bg-slate-50 p-2.5 rounded-xl group-active:scale-95 transition-transform relative"><Car size={20}/>{remindersCount > 0 && <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 border-2 border-white rounded-full"></div>}</div>
+                  <div><span className="font-bold text-[14px] text-slate-800 block leading-tight">Thông tin xe & Giấy tờ</span><span className="font-medium text-[11px] text-slate-400 mt-0.5 block">Quản lý bảo hiểm, đăng kiểm...</span></div>
                </div>
                <ChevronRight size={18} className="text-slate-300" />
             </button>
@@ -686,6 +703,76 @@ function SettingsView({ tankCapacity, vehicleName, plateNumber, userName, userAv
 // ----------------------------------------------------------------------
 // MODALS & HELPER COMPONENTS
 // ----------------------------------------------------------------------
+
+function Car360Viewer({ images, onError }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [startX, setStartX] = useState(0);
+
+  // Preload hình ảnh để vuốt không bị chớp giật
+  useEffect(() => {
+    images.forEach(src => {
+      const img = new Image();
+      img.src = src;
+    });
+  }, [images]);
+
+  const handleStart = (e) => {
+    setIsDragging(true);
+    setStartX(e.touches ? e.touches[0].clientX : e.clientX);
+  };
+
+  const handleMove = (e) => {
+    if (!isDragging || images.length === 0) return;
+    const currentX = e.touches ? e.touches[0].clientX : e.clientX;
+    const delta = currentX - startX;
+
+    if (Math.abs(delta) > 15) {
+      setCurrentIndex((prevIndex) => {
+        let nextIndex = prevIndex - (delta > 0 ? 1 : -1);
+        if (nextIndex < 0) return images.length - 1;
+        if (nextIndex >= images.length) return 0;
+        return nextIndex;
+      });
+      setStartX(currentX);
+    }
+  };
+
+  const handleEnd = () => setIsDragging(false);
+
+  return (
+    <div 
+      className="relative mt-5 h-48 flex items-center justify-center cursor-ew-resize group select-none touch-pan-y"
+      onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} onMouseLeave={handleEnd}
+      onTouchStart={handleStart} onTouchMove={handleMove} onTouchEnd={handleEnd}
+    >
+      <div className="absolute inset-0 slanted-stripe -z-10 rounded-3xl"></div>
+      
+      {images.length > 1 && (
+        <>
+          <div className="absolute top-3 right-3 bg-slate-900/40 text-white text-[10px] font-bold px-2.5 py-1 rounded-full backdrop-blur-md flex items-center gap-1.5 opacity-60 transition-opacity z-10 shadow-sm pointer-events-none">
+            <RotateCw size={12} className={isDragging ? "animate-spin" : ""} /> 360°
+          </div>
+          <div className={`absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 text-slate-400 bg-white/60 backdrop-blur-sm px-3 py-1 rounded-full pointer-events-none transition-opacity duration-300 ${isDragging ? 'opacity-0' : 'opacity-100 md:opacity-0 md:group-hover:opacity-100'}`}>
+            <MoveHorizontal size={14} />
+            <span className="text-[9px] font-bold uppercase tracking-wider">Vuốt để xoay</span>
+          </div>
+        </>
+      )}
+
+      {images.length > 0 && (
+        <img 
+          src={images[currentIndex]} 
+          alt="Xe 360" 
+          onError={onError} // Kích hoạt fallback nếu lỗi (Vd: Chưa tạo thư mục local)
+          className="w-[85%] h-auto object-contain drop-shadow-xl pointer-events-none transition-transform duration-75" 
+          draggable="false"
+        />
+      )}
+    </div>
+  );
+}
+
 function GridItem({ icon, label, val, desc, color, onClick }) {
   return (
     <button onClick={onClick} className="bg-white p-5 rounded-[28px] border border-slate-50 shadow-sm text-left active:scale-95 transition-all flex flex-col justify-between h-36">
@@ -734,9 +821,8 @@ function SettingsItem({ icon, label, value, hasToggle, defaultChecked, color = "
 function TripModule({ isRecording, ongoingTrip, setOngoingTrip, onStart, onStop, onCancelTrip, onClose }) {
   const [isLocating, setIsLocating] = useState(false);
 
-  // Tính khoảng cách bằng công thức Haversine (đường chim bay)
   const calculateDistance = (lat1, lon1, lat2, lon2) => {
-    const R = 6371; // Bán kính Trái Đất (km)
+    const R = 6371; 
     const dLat = (lat2 - lat1) * Math.PI / 180;
     const dLon = (lon2 - lon1) * Math.PI / 180;
     const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
@@ -748,8 +834,7 @@ function TripModule({ isRecording, ongoingTrip, setOngoingTrip, onStart, onStop,
     setIsLocating(true);
     if (!navigator.geolocation) {
       alert("Trình duyệt không hỗ trợ GPS");
-      setIsLocating(false);
-      return;
+      setIsLocating(false); return;
     }
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
@@ -762,15 +847,10 @@ function TripModule({ isRecording, ongoingTrip, setOngoingTrip, onStart, onStop,
           setOngoingTrip({ timer: 0, from: `${road}, ${city}`, to: '', distance: '0', startCoords: {lat: latitude, lon: longitude}, isReviewing: false });
         } catch {
           setOngoingTrip({ timer: 0, from: `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`, to: '', distance: '0', startCoords: {lat: latitude, lon: longitude}, isReviewing: false });
-        } finally {
-          setIsLocating(false);
-          onStart();
-        }
+        } finally { setIsLocating(false); onStart(); }
       },
       (err) => {
-        console.error(err);
         setIsLocating(false);
-        // Fallback demo data
         setOngoingTrip({ timer: 0, from: 'Hồ Chí Minh (Demo)', to: '', distance: '0', startCoords: {lat: 10.762622, lon: 106.660172}, isReviewing: false });
         onStart();
       },
@@ -782,8 +862,7 @@ function TripModule({ isRecording, ongoingTrip, setOngoingTrip, onStart, onStop,
     setIsLocating(true);
     if (!navigator.geolocation || !ongoingTrip.startCoords) {
        setOngoingTrip(p => ({...p, isReviewing: true, to: 'Không rõ'}));
-       setIsLocating(false);
-       return;
+       setIsLocating(false); return;
     }
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
@@ -837,30 +916,18 @@ function TripModule({ isRecording, ongoingTrip, setOngoingTrip, onStart, onStop,
               <>
                 <div className="text-5xl font-black text-slate-800 tracking-tighter mb-2">{formatTime(ongoingTrip.timer)}</div>
                 <p className="text-sm font-bold text-slate-400 mb-8 flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div> Từ: {ongoingTrip.from}</p>
-                <button 
-                  onClick={stopTripProcess} disabled={isLocating}
-                  className="w-full bg-red-500 text-white font-bold py-5 rounded-3xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
-                >
+                <button onClick={stopTripProcess} disabled={isLocating} className="w-full bg-red-500 text-white font-bold py-5 rounded-3xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2">
                   {isLocating ? <Loader2 className="animate-spin" size={20} /> : <Square size={20} fill="currentColor"/>}
                   {isLocating ? 'ĐANG LẤY TỌA ĐỘ...' : 'KẾT THÚC HÀNH TRÌNH'}
                 </button>
               </>
             ) : (
               <div className="w-full space-y-4">
-                 <div className="space-y-1.5">
-                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Điểm xuất phát</label>
-                   <input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none focus:bg-white transition-all" value={ongoingTrip.from} onChange={e => setOngoingTrip(p => ({...p, from: e.target.value}))} />
-                 </div>
-                 <div className="space-y-1.5">
-                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Điểm đến (Dự kiến)</label>
-                   <input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none focus:bg-white transition-all" value={ongoingTrip.to} onChange={e => setOngoingTrip(p => ({...p, to: e.target.value}))} />
-                 </div>
-                 <div className="space-y-1.5">
-                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Quãng đường (KM)</label>
-                   <input type="number" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none focus:bg-white transition-all" value={ongoingTrip.distance} onChange={e => setOngoingTrip(p => ({...p, distance: e.target.value}))} />
-                 </div>
+                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Điểm xuất phát</label><input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={ongoingTrip.from} onChange={e => setOngoingTrip(p => ({...p, from: e.target.value}))} /></div>
+                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Điểm đến (Dự kiến)</label><input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={ongoingTrip.to} onChange={e => setOngoingTrip(p => ({...p, to: e.target.value}))} /></div>
+                 <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Quãng đường (KM)</label><input type="number" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={ongoingTrip.distance} onChange={e => setOngoingTrip(p => ({...p, distance: e.target.value}))} /></div>
                  <div className="flex gap-3 mt-4">
-                   <button onClick={onCancelTrip} className="w-[100px] bg-red-50 text-red-600 font-bold py-5 rounded-3xl active:scale-95 transition-all flex items-center justify-center shrink-0 border border-red-100">HỦY</button>
+                   <button onClick={onCancelTrip} className="w-[100px] bg-red-50 text-red-600 font-bold py-5 rounded-3xl active:scale-95 transition-all flex items-center justify-center shrink-0 border border-red-100">HỦY BỎ</button>
                    <button onClick={finalizeSave} className="flex-1 bg-blue-600 text-white font-bold py-5 rounded-3xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"><CheckCircle2 size={20} /> LƯU</button>
                  </div>
               </div>
@@ -868,11 +935,8 @@ function TripModule({ isRecording, ongoingTrip, setOngoingTrip, onStart, onStop,
           ) : (
             <div className="space-y-4 w-full text-center">
               <div className="w-24 h-24 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mx-auto mb-6"><Navigation size={40} className="-ml-1" /></div>
-              <p className="text-slate-500 font-medium text-sm mb-6 px-4">Ứng dụng sẽ sử dụng GPS để theo dõi lộ trình và tự động tính quãng đường di chuyển của bạn.</p>
-              <button 
-                onClick={startTripProcess} disabled={isLocating}
-                className="w-full bg-blue-600 text-white font-bold py-5 rounded-3xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2"
-              >
+              <p className="text-slate-500 font-medium text-sm mb-6 px-4">Ứng dụng sử dụng GPS để theo dõi lộ trình và tự động tính quãng đường.</p>
+              <button onClick={startTripProcess} disabled={isLocating} className="w-full bg-blue-600 text-white font-bold py-5 rounded-3xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2">
                 {isLocating ? <Loader2 className="animate-spin" size={20} /> : <Play size={20} fill="currentColor"/>}
                 {isLocating ? 'ĐANG TÌM GPS...' : 'BẮT ĐẦU ĐI'}
               </button>
@@ -894,39 +958,17 @@ function EditTripModule({ trip, onSave, onClose }) {
     <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm z-[200] flex items-end animate-in fade-in duration-300">
       <div className="w-full bg-white rounded-t-[40px] p-8 pb-12 shadow-2xl animate-in slide-in-from-bottom-full duration-500">
         <div className="flex justify-between items-center mb-6">
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-blue-50 rounded-2xl text-blue-500"><Pencil size={24}/></div>
-            <h2 className="text-xl font-bold text-slate-800">Sửa hành trình</h2>
-          </div>
+          <div className="flex items-center gap-4"><div className="p-3 bg-blue-50 rounded-2xl text-blue-500"><Pencil size={24}/></div><h2 className="text-xl font-bold text-slate-800">Sửa hành trình</h2></div>
           <button onClick={onClose} className="p-2 bg-slate-50 rounded-full text-slate-300"><X size={20}/></button>
         </div>
-
         <div className="space-y-4">
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Điểm xuất phát</label>
-            <input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none focus:bg-white transition-all" value={from} onChange={e => setFrom(e.target.value)} />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Điểm đến</label>
-            <input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none focus:bg-white transition-all" value={to} onChange={e => setTo(e.target.value)} />
-          </div>
+          <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Điểm xuất phát</label><input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={from} onChange={e => setFrom(e.target.value)} /></div>
+          <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Điểm đến</label><input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={to} onChange={e => setTo(e.target.value)} /></div>
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Quãng đường (KM)</label>
-              <input type="number" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none focus:bg-white transition-all" value={distance} onChange={e => setDistance(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Thời gian</label>
-              <input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none focus:bg-white transition-all" value={duration} onChange={e => setDuration(e.target.value)} />
-            </div>
+            <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Quãng đường (KM)</label><input type="number" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={distance} onChange={e => setDistance(e.target.value)} /></div>
+            <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Thời gian</label><input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={duration} onChange={e => setDuration(e.target.value)} /></div>
           </div>
-          
-          <button 
-            onClick={() => onSave({ ...trip, from, to, distance: Number(distance), duration })} 
-            className="w-full bg-blue-600 text-white font-bold py-5 rounded-3xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-3 mt-4"
-          >
-            <CheckCircle2 size={20} /> CẬP NHẬT
-          </button>
+          <button onClick={() => onSave({ ...trip, from, to, distance: Number(distance), duration })} className="w-full bg-blue-600 text-white font-bold py-5 rounded-3xl mt-4"><CheckCircle2 size={20} className="inline mr-2 -mt-1"/> CẬP NHẬT</button>
         </div>
       </div>
     </div>
@@ -976,8 +1018,8 @@ function FuelModule({ onClose, onSave }) {
         <div className="space-y-4">
           <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Tổng chi phí (VNĐ)</label><input type="number" placeholder="0" autoFocus className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-2xl font-black text-slate-900 outline-none focus:bg-white focus:ring-4 focus:ring-blue-50 transition-all" value={amount} onChange={e => setAmount(e.target.value)}/></div>
           <div className="grid grid-cols-2 gap-4"><div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Giá 1 lít</label><input type="number" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-lg font-bold text-slate-800 outline-none" value={pricePerLiter} onChange={e => setPricePerLiter(e.target.value)}/></div><div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Số lít dự kiến</label><div className="w-full bg-blue-50/50 border border-blue-100 rounded-2xl p-4 text-lg font-black text-blue-600 flex items-center justify-center">{calculatedLiters.toFixed(2)} L</div></div></div>
-          <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Vị trí / Cây xăng</label><div className="relative"><MapPin size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" /><input type="text" placeholder="Nhập địa điểm..." className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 pl-12 pr-12 text-sm font-bold text-slate-800 outline-none focus:bg-white focus:ring-4 focus:ring-blue-50 transition-all" value={location} onChange={e => setLocation(e.target.value)}/><button onClick={handleGetLocation} className="absolute right-4 top-1/2 -translate-y-1/2 text-blue-500">{isLocating ? <Loader2 size={18} className="animate-spin" /> : <LocateFixed size={18} />}</button></div></div>
-          <button onClick={() => { if(!amount) return; onSave({ type: 'fuel', cost: Number(amount), pricePerLiter: Number(pricePerLiter), liters: calculatedLiters, location: location || 'N/A', odo: 45200, date: new Date().toLocaleDateString('vi-VN') }); }} className="w-full bg-slate-900 text-white font-bold py-5 rounded-3xl shadow-xl active:scale-[0.98] transition-all flex items-center justify-center gap-3 mt-4"><CheckCircle2 size={20} /> LƯU NHẬT KÝ</button>
+          <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Vị trí / Cây xăng</label><div className="relative"><MapPin size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" /><input type="text" placeholder="Nhập địa điểm..." className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 pl-12 pr-12 text-sm font-bold text-slate-800 outline-none" value={location} onChange={e => setLocation(e.target.value)}/><button onClick={handleGetLocation} className="absolute right-4 top-1/2 -translate-y-1/2 text-blue-500">{isLocating ? <Loader2 size={18} className="animate-spin" /> : <LocateFixed size={18} />}</button></div></div>
+          <button onClick={() => { if(!amount) return; onSave({ type: 'fuel', cost: Number(amount), pricePerLiter: Number(pricePerLiter), liters: calculatedLiters, location: location || 'N/A', odo: 45200, date: new Date().toLocaleDateString('vi-VN') }); }} className="w-full bg-slate-900 text-white font-bold py-5 rounded-3xl shadow-xl mt-4"><CheckCircle2 size={20} className="inline mr-2 -mt-1" /> LƯU NHẬT KÝ</button>
         </div>
       </div>
     </div>
@@ -1013,8 +1055,8 @@ function ExpenseModule({ onClose, onSave }) {
         <div className="flex justify-between items-center mb-6"><div className="flex items-center gap-4"><div className="p-3 bg-amber-50 rounded-2xl text-amber-500"><Wrench size={24}/></div><h2 className="text-xl font-bold text-slate-800">Dịch vụ & Chi phí</h2></div><button onClick={onClose} className="p-2 bg-slate-50 rounded-full text-slate-300"><X size={20}/></button></div>
         <div className="space-y-5">
           <div><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Loại chi phí</label><div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">{categories.map(c => <button key={c.id} onClick={() => setExpenseType(c.id)} className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border whitespace-nowrap transition-all ${expenseType === c.id ? c.color + ' border-transparent shadow-sm' : 'bg-white border-slate-100 text-slate-500'}`}>{c.icon}<span className="text-sm font-bold">{c.label}</span></button>)}</div></div>
-          <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Số tiền (VNĐ)</label><input type="number" placeholder="0" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-2xl font-black outline-none focus:bg-white transition-all" value={amount} onChange={e => setAmount(e.target.value)}/></div>
-          <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Nội dung chi tiết</label><input type="text" placeholder="Ví dụ: Thay bình ắc quy..." className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none focus:bg-white transition-all" value={note} onChange={e => setNote(e.target.value)}/></div>
+          <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Số tiền (VNĐ)</label><input type="number" placeholder="0" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-2xl font-black outline-none" value={amount} onChange={e => setAmount(e.target.value)}/></div>
+          <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Nội dung chi tiết</label><input type="text" placeholder="Ví dụ: Thay bình ắc quy..." className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={note} onChange={e => setNote(e.target.value)}/></div>
           <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 block">Hình ảnh</label><input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileChange} />{image ? <div className="relative w-full h-32 rounded-2xl overflow-hidden"><img src={image} className="w-full h-full object-cover" /><button onClick={() => setImage(null)} className="absolute top-3 right-3 bg-black/60 text-white p-1 rounded-full"><X size={16}/></button></div> : <button onClick={() => fileInputRef.current.click()} className="w-full h-20 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center gap-2 text-slate-400"><Camera size={20} /><span className="text-[12px] font-bold">Chạm để tải ảnh</span></button>}</div>
           <button onClick={() => { if(!amount) return; const catLabel = categories.find(c => c.id === expenseType)?.label || 'Bảo dưỡng'; onSave({ type: expenseType, cost: Number(amount), title: note || catLabel, odo: 45200, date: new Date().toLocaleDateString('vi-VN'), image: image }); }} className="w-full bg-slate-900 text-white font-bold py-5 rounded-3xl mt-4">LƯU CHI PHÍ</button>
         </div>
