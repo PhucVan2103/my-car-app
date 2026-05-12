@@ -14,7 +14,7 @@ import {
 // Dòng code này sẽ tự động tạo ra một mảng gồm 75 đường link:
 // ["/car360/1.jpg", "/car360/2.jpg", ..., "/car360/75.jpg"]
 // Yêu cầu: Bạn phải bỏ 75 tấm ảnh vào thư mục: public/car360/
-const CAR_360_IMAGES = Array.from({ length: 75 }, (_, i) => `/car360/${i + 1}.jpg`);
+const CAR_360_IMAGES = Array.from({ length: 75 }, (_, i) => `/car360/${i + 1}.png`);
 // Nếu bạn dùng đuôi .png thì đổi '.jpg' thành '.png' ở dòng trên.
 
 // Fallback nếu thư mục public chưa có ảnh (sẽ dùng 1 ảnh tĩnh từ mạng)
