@@ -1,5 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDQ6jUxK1MI-ZxdxjnDZs_iP9vs_v_dxbg",
@@ -15,3 +16,5 @@ const app = initializeApp(firebaseConfig);
 
 // Khởi tạo Cloud Firestore và lấy tham chiếu đến dịch vụ
 export const db = getFirestore(app);
+export const auth = getAuth(app);
+export const provider = new GoogleAuthProvider();
