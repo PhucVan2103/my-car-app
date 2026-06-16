@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { db, auth, provider } from './firebase';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, serverTimestamp } from "firebase/firestore";
-import { signInWithPopup, onAuthStateChanged, signOut } from "firebase/auth";
+import { signInWithRedirect, onAuthStateChanged, signOut } from "firebase/auth";
 
 // MẢNG ẢNH 360 CỦA BẠN: 75 hình
 const CAR_360_IMAGES = Array.from({ length: 75 }, (_, i) => `/car360/${i + 1}.png`);
@@ -164,7 +164,8 @@ export default function App() {
 
   const handleLogin = async () => {
     try {
-      await signInWithPopup(auth, provider);
+      // Sử dụng signInWithRedirect thay cho popup để tương thích tốt hơn với trình duyệt điện thoại
+      await signInWithRedirect(auth, provider);
     } catch (error) {
       console.error("Lỗi đăng nhập:", error);
       alert("Đăng nhập thất bại. Vui lòng thử lại!");
