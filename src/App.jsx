@@ -185,13 +185,13 @@ export default function App() {
   };
 
   if (authLoading) {
-    return <div className="min-h-screen bg-slate-100 flex items-center justify-center"><Loader2 size={40} className="animate-spin text-blue-500"/></div>;
+    return <div className="fixed inset-0 bg-slate-100 flex items-center justify-center overflow-hidden"><Loader2 size={40} className="animate-spin text-blue-500"/></div>;
   }
 
   if (!authUser) {
     return (
-      <div className="min-h-screen bg-slate-100 flex justify-center font-sans antialiased text-slate-900">
-         <div className="relative w-full max-w-md h-screen bg-white shadow-2xl flex flex-col items-center justify-center p-8">
+      <div className="fixed inset-0 bg-slate-100 flex justify-center font-sans antialiased text-slate-900 overflow-hidden overscroll-none">
+         <div className="relative w-full max-w-md h-full bg-white shadow-2xl flex flex-col items-center justify-center p-8">
             <div className="w-24 h-24 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mb-6"><Car size={48} /></div>
             <h1 className="text-3xl font-black text-slate-800 mb-2">My Car App</h1>
             <p className="text-slate-500 font-medium text-center mb-12">Quản lý hành trình và chi phí cho xế yêu của bạn một cách dễ dàng.</p>
@@ -205,13 +205,13 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 flex justify-center font-sans antialiased text-slate-900">
+    <div className="fixed inset-0 bg-slate-100 flex justify-center font-sans antialiased text-slate-900 overflow-hidden overscroll-none">
       {/* App Container */}
-      <div className="relative w-full max-w-md h-screen bg-white shadow-2xl flex flex-col overflow-hidden">
+      <div className="relative w-full max-w-md h-full bg-white shadow-2xl flex flex-col overflow-hidden">
 
         {/* App Content Area */}
         <div className="flex-1 relative flex flex-col pt-4 overflow-hidden bg-slate-50/50">
-          <div className="flex-1 overflow-y-auto scrollbar-hide pb-24">
+          <div className="flex-1 overflow-y-auto overscroll-contain scrollbar-hide pb-24">
             {activeTab === 'dashboard' && (
               <DashboardView 
                 userName={userName} fuelPercentage={fuelPercentage} currentFuelLiters={currentFuelLiters} 
