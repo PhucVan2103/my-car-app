@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { db, auth, provider } from './firebase';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, serverTimestamp } from "firebase/firestore";
-import { signInWithRedirect, onAuthStateChanged, signOut } from "firebase/auth";
+import { signInWithPopup, getRedirectResult, onAuthStateChanged, signOut } from "firebase/auth";
 
 // MẢNG ẢNH 360 CỦA BẠN: 75 hình
 const CAR_360_IMAGES = Array.from({ length: 75 }, (_, i) => `/car360/${i + 1}.png`);
@@ -74,6 +74,11 @@ export default function App() {
 
   // Lắng nghe trạng thái đăng nhập
   useEffect(() => {
+    // Bắt và xử lý kết quả đăng nhập (nếu trước đó có chuyển hướng)
+    getRedirectResult(auth).catch((error) => {
+      console.error("Lỗi xử lý redirect:", error);
+    });
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
         setAuthUser(currentUser);
@@ -164,11 +169,14 @@ export default function App() {
 
   const handleLogin = async () => {
     try {
-      // Sử dụng signInWithRedirect thay cho popup để tương thích tốt hơn với trình duyệt điện thoại
-      await signInWithRedirect(auth, provider);
+      setAuthLoading(true); // Hiển thị màn hình Loading trong lúc chờ đăng nhập
+      // Dùng lại Popup vì IP đã được thêm vào Authorized domains.
+      // Tránh lỗi trình duyệt (Safari/Chrome Mobile) chặn Cookie bên thứ 3.
+      await signInWithPopup(auth, provider);
     } catch (error) {
       console.error("Lỗi đăng nhập:", error);
       alert("Đăng nhập thất bại. Vui lòng thử lại!");
+      setAuthLoading(false);
     }
   };
 
