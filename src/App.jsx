@@ -7,6 +7,8 @@ import {
   Map as MapIcon, Shield, AlertTriangle, LocateFixed, Loader2, Play, Square, Navigation,
   Trash2, Pencil, RotateCw, MoveHorizontal
 } from 'lucide-react';
+import { db } from './firebase';
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, serverTimestamp } from "firebase/firestore";
 
 // MẢNG ẢNH 360 CỦA BẠN: 75 hình
 const CAR_360_IMAGES = Array.from({ length: 75 }, (_, i) => `/car360/${i + 1}.png`);
@@ -19,6 +21,7 @@ export default function App() {
   const [activeModule, setActiveModule] = useState(null);
   const [editMode, setEditMode] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null); // Quản lý Popup Xóa Hành trình
+  const [loadingData, setLoadingData] = useState(true);
   
   // User & Vehicle State
   const [userName, setUserName] = useState('Jane');
@@ -41,11 +44,9 @@ export default function App() {
     { id: 2, type: 'maintenance', date: '20/04/2026', cost: 1500000, odo: 44000, title: 'Thay nhớt định kỳ' }
   ]);
 
-  const [trips, setTrips] = useState([
-    { id: 1, from: 'Quận 1, TP.HCM', to: 'Quận 7, TP.HCM', distance: '12.4', time: '45 phút', date: '12/05/2026' }
-  ]);
+  const [trips, setTrips] = useState([]);
 
-  // Trip Recording State (Đưa ra App để giữ state khi chuyển tab)
+  // Trạng thái ghi hành trình
   const [isRecordingTrip, setIsRecordingTrip] = useState(false);
   const [ongoingTrip, setOngoingTrip] = useState({
     timer: 0,
@@ -56,7 +57,22 @@ export default function App() {
     isReviewing: false
   });
 
-  // Timer effect
+  // Tích hợp Firestore
+  const tripsCollectionRef = useMemo(() => collection(db, "trips"), []);
+
+  const getTrips = async () => {
+    setLoadingData(true);
+    const q = query(tripsCollectionRef, orderBy("createdAt", "desc"));
+    const data = await getDocs(q);
+    setTrips(data.docs.map(doc => ({ ...doc.data(), id: doc.id })));
+    setLoadingData(false);
+  };
+
+  useEffect(() => {
+    getTrips();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Hiệu ứng timer
   useEffect(() => {
     let interval;
     if (isRecordingTrip && !ongoingTrip.isReviewing) {
@@ -95,8 +111,12 @@ export default function App() {
     setActiveModule(null);
   };
 
-  const handleSaveTrip = (tripDataToSave) => {
-    setTrips(prev => [{ ...tripDataToSave, id: Date.now() }, ...prev]);
+  const handleSaveTrip = async (tripDataToSave) => {
+    await addDoc(tripsCollectionRef, {
+      ...tripDataToSave,
+      createdAt: serverTimestamp()
+    });
+    getTrips(); // Tải lại danh sách
     setIsRecordingTrip(false);
     setOngoingTrip({ timer: 0, from: '', to: '', distance: '0', startCoords: null, isReviewing: false });
     setActiveModule(null);
@@ -108,39 +128,28 @@ export default function App() {
     setActiveModule(null);
   };
 
-  // Hàm thực thi việc xóa (Sau khi xác nhận từ Popup)
-  const executeDeleteTrip = (id) => {
-    setTrips(prev => prev.filter(t => t.id !== id));
+  const executeDeleteTrip = async (id) => {
+    const tripDoc = doc(db, "trips", id);
+    await deleteDoc(tripDoc);
+    getTrips(); // Tải lại danh sách
     setDeleteConfirm(null);
   };
 
-  const handleUpdateTrip = (updatedTrip) => {
-    setTrips(prev => prev.map(t => t.id === updatedTrip.id ? updatedTrip : t));
+  const handleUpdateTrip = async (updatedTrip) => {
+    const { id, ...dataToUpdate } = updatedTrip;
+    const tripDoc = doc(db, "trips", id);
+    await updateDoc(tripDoc, dataToUpdate);
+    getTrips(); // Tải lại danh sách
     setEditMode(null);
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans antialiased text-slate-900">
-      {/* iPhone Chassis */}
-      <div className="relative w-[390px] h-[844px] bg-white rounded-[55px] border-[8px] border-slate-800 shadow-2xl flex flex-col overflow-hidden ring-1 ring-black/5">
-        
-        {/* Dynamic Island Area */}
-        <div className="absolute top-0 left-0 w-full h-12 flex justify-between items-end px-8 pb-1 z-[100] text-black text-[12px] font-bold pointer-events-none">
-          <span>9:41</span>
-          <div className="w-24 h-6 bg-black rounded-full absolute left-1/2 -translate-x-1/2 top-3"></div>
-          <div className="flex gap-1.5 items-center">
-            <div className="flex gap-0.5">
-               <div className="w-1 h-3 bg-black rounded-full"></div>
-               <div className="w-1 h-3 bg-black rounded-full"></div>
-            </div>
-            <div className="w-5 h-2.5 border border-black/30 rounded-[2px] relative">
-              <div className="absolute inset-[1px] bg-black w-[80%] rounded-[1px]"></div>
-            </div>
-          </div>
-        </div>
+    <div className="min-h-screen bg-slate-100 flex justify-center font-sans antialiased text-slate-900">
+      {/* App Container */}
+      <div className="relative w-full max-w-md h-screen bg-white shadow-2xl flex flex-col overflow-hidden">
 
         {/* App Content Area */}
-        <div className="flex-1 relative flex flex-col pt-12 overflow-hidden bg-slate-50/50">
+        <div className="flex-1 relative flex flex-col pt-4 overflow-hidden bg-slate-50/50">
           <div className="flex-1 overflow-y-auto scrollbar-hide pb-24">
             {activeTab === 'dashboard' && (
               <DashboardView 
@@ -153,6 +162,7 @@ export default function App() {
             {activeTab === 'trip' && (
               <TripMainView 
                 trips={trips} 
+                loading={loadingData}
                 isRecording={isRecordingTrip} 
                 onStartTrip={() => setActiveModule('trip')} 
                 onRequestDelete={(trip) => setDeleteConfirm(trip)} // Gọi Popup thay vì xóa luôn
@@ -170,7 +180,7 @@ export default function App() {
           </div>
 
           {/* Navigation Bar - FIXED AT BOTTOM */}
-          <div className="absolute bottom-0 left-0 w-full bg-white/80 backdrop-blur-xl border-t border-slate-100 px-8 pt-3 pb-8 flex justify-between items-center z-[90]">
+          <div className="absolute bottom-0 left-0 w-full bg-white/80 backdrop-blur-xl border-t border-slate-100 px-8 pt-3 pb-6 flex justify-between items-center z-[90]">
             <NavBtn icon={<Home size={22} />} active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
             <NavBtn icon={<Navigation size={22} />} active={activeTab === 'trip'} onClick={() => setActiveTab('trip')} />
             <NavBtn icon={<BarChart3 size={22} />} active={activeTab === 'expenses'} onClick={() => setActiveTab('expenses')} />
@@ -179,7 +189,6 @@ export default function App() {
               active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} 
             />
           </div>
-          <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-32 h-1 bg-black/10 rounded-full z-[100]"></div>
         </div>
 
         {/* Overlay Modals */}
@@ -405,7 +414,7 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 // ----------------------------------------------------------------------
 // TRIP MAIN VIEW
 // ----------------------------------------------------------------------
-function TripMainView({ trips, isRecording, onStartTrip, onRequestDelete, onEditTrip }) {
+function TripMainView({ trips, isRecording, onStartTrip, onRequestDelete, onEditTrip, loading }) {
   const totalDistance = trips.reduce((acc, curr) => acc + (Number(curr.distance) || 0), 0).toFixed(1);
 
   return (
@@ -427,10 +436,13 @@ function TripMainView({ trips, isRecording, onStartTrip, onRequestDelete, onEdit
 
        {/* XÓA BỎ DÒNG: <div className="absolute left-[38px] top-4 bottom-0 w-[2px] bg-slate-100 z-0"></div> KHỎI ĐÂY */}
        <div className="flex-1 overflow-y-auto scrollbar-hide -mx-6 px-6 relative">
-          
           {/* Cấp phát khoảng trống bên trái (pl-10) để vẽ Timeline */}
           <div className="space-y-6 pb-8 relative z-10 pl-10">
-            {trips.length === 0 ? (
+            {loading ? (
+              <div className="text-center py-10 text-slate-400">
+                 <Loader2 size={32} className="mx-auto mb-3 opacity-50 animate-spin" />
+              </div>
+            ) : trips.length === 0 ? (
               <div className="text-center py-10 text-slate-400">
                  <MapIcon size={32} className="mx-auto mb-3 opacity-20" />
                  <p className="font-bold text-sm">Chưa có dữ liệu</p>
@@ -452,7 +464,7 @@ function TripMainView({ trips, isRecording, onStartTrip, onRequestDelete, onEdit
                     {/* Header: Date and Actions */}
                     <div className="flex justify-between items-start mb-4">
                       <div>
-                        <p className="text-[12px] font-bold text-slate-400">{t.date} • {t.time && t.time.includes(':') ? t.time : t.time || '14:30'}</p>
+                        <p className="text-[12px] font-bold text-slate-400">{t.date} • {t.time}</p>
                         <div className="inline-block mt-2 px-3 py-1.5 bg-[#f0f4ff] rounded-full">
                           <p className="text-[13px] font-black text-blue-600 leading-none">{t.distance} km</p>
                         </div>
@@ -486,7 +498,7 @@ function TripMainView({ trips, isRecording, onStartTrip, onRequestDelete, onEdit
                        
                        <div className="text-right shrink-0 ml-4">
                          <p className="text-[11px] font-bold text-slate-400 mb-0.5">Thời gian</p>
-                         <p className="text-xl font-black text-[#1a202c] leading-none">{t.time || '45 phút'}</p>
+                         <p className="text-xl font-black text-[#1a202c] leading-none">{t.duration || '45 phút'}</p>
                        </div>
                     </div>
                   </div>
@@ -816,12 +828,14 @@ function TripModule({ isRecording, ongoingTrip, setOngoingTrip, onStart, onStop,
   };
 
   const finalizeSave = () => {
+    const d = new Date();
     onStop({
       from: ongoingTrip.from || 'Không rõ điểm đi',
       to: ongoingTrip.to || 'Không rõ điểm đến',
-      distance: ongoingTrip.distance,
-      time: formatTime(ongoingTrip.timer),
-      date: new Date().toLocaleDateString('vi-VN')
+      distance: Number(ongoingTrip.distance) || 0,
+      duration: formatTime(ongoingTrip.timer),
+      date: d.toLocaleDateString('vi-VN'),
+      time: d.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'}),
     });
   };
 
@@ -902,7 +916,7 @@ function EditTripModule({ trip, onClose, onSave }) {
   const [from, setFrom] = useState(trip.from);
   const [to, setTo] = useState(trip.to);
   const [distance, setDistance] = useState(trip.distance);
-  const [time, setTime] = useState(trip.time);
+  const [duration, setDuration] = useState(trip.duration);
 
   return (
     <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm z-[200] flex items-end animate-in fade-in duration-300">
@@ -918,10 +932,10 @@ function EditTripModule({ trip, onClose, onSave }) {
           <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Điểm đi</label><input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={from} onChange={e => setFrom(e.target.value)} /></div>
           <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Điểm đến</label><input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={to} onChange={e => setTo(e.target.value)} /></div>
           <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Quãng đường</label><input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={distance} onChange={e => setDistance(e.target.value)} /></div>
-            <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Thời gian</label><input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={time} onChange={e => setTime(e.target.value)} /></div>
+            <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Quãng đường (km)</label><input type="number" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={distance} onChange={e => setDistance(e.target.value)} /></div>
+            <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Thời gian</label><input type="text" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={duration} onChange={e => setDuration(e.target.value)} /></div>
           </div>
-          <button onClick={() => onSave({ ...trip, from, to, distance, time })} className="w-full bg-slate-900 text-white font-bold py-5 rounded-3xl mt-4">LƯU THAY ĐỔI</button>
+          <button onClick={() => onSave({ ...trip, from, to, distance: Number(distance), duration })} className="w-full bg-slate-900 text-white font-bold py-5 rounded-3xl mt-4">LƯU THAY ĐỔI</button>
         </div>
       </div>
     </div>
