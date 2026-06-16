@@ -5,7 +5,8 @@ import {
   Calendar, Thermometer, FileText, Droplets, Camera, Sparkles, Package, 
   Hammer, ChevronDown, User, Car, Database, CreditCard, BadgeCheck, 
   Map as MapIcon, Shield, AlertTriangle, LocateFixed, Loader2, Play, Square, Navigation,
-  Trash2, Pencil, RotateCw, MoveHorizontal, LogOut
+  Trash2, Pencil, RotateCw, MoveHorizontal, LogOut,
+  Sun, Cloud, CloudRain, CloudLightning, Snowflake
 } from 'lucide-react';
 import { db, auth, provider } from './firebase';
 import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy, serverTimestamp } from "firebase/firestore";
@@ -56,10 +57,15 @@ export default function App() {
     timer: 0,
     from: '',
     to: '',
-    distance: '0',
+    distance: 0,
+    currentSpeed: 0, // Bổ sung state lưu tốc độ hiện tại
     startCoords: null,
+    lastCoords: null, // Bổ sung để lưu vết tọa độ trước đó
+    weather: null, // Bổ sung state lưu thời tiết
     isReviewing: false
   });
+
+  const wakeLockRef = useRef(null);
 
   // Tích hợp Firestore
   const tripsCollectionRef = useMemo(() => collection(db, "trips"), []);
@@ -107,6 +113,82 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isRecordingTrip, ongoingTrip.isReviewing]);
 
+  // Cập nhật GPS liên tục (Continuous Tracking)
+  useEffect(() => {
+    let watchId;
+    if (isRecordingTrip && !ongoingTrip.isReviewing) {
+      if ("geolocation" in navigator) {
+        watchId = navigator.geolocation.watchPosition(
+          (position) => {
+            const { latitude, longitude, accuracy, speed } = position.coords;
+            
+            // Bỏ qua nếu độ chính xác kém hơn 50m để tránh GPS bị "nhảy" do nhiễu sóng
+            if (accuracy > 50) return;
+            
+            setOngoingTrip(prev => {
+              // speed là m/s, nhân với 3.6 để ra km/h
+              const speedKmh = speed ? Math.round(speed * 3.6) : 0;
+
+              if (!prev.lastCoords) return { ...prev, currentSpeed: speedKmh, lastCoords: { lat: latitude, lon: longitude } };
+              
+              const dist = calculateDistance(prev.lastCoords.lat, prev.lastCoords.lon, latitude, longitude);
+              
+              // Chỉ cộng dồn nếu di chuyển > 0.01 km (10 mét)
+              if (dist >= 0.01) {
+                const newDist = Number(prev.distance) + dist;
+                return { ...prev, currentSpeed: speedKmh, distance: Number(newDist.toFixed(2)), lastCoords: { lat: latitude, lon: longitude } };
+              }
+              return { ...prev, currentSpeed: speedKmh };
+            });
+          },
+          (err) => console.log("Lỗi theo dõi GPS:", err),
+          { enableHighAccuracy: true, maximumAge: 5000, timeout: 5000 }
+        );
+      }
+    }
+    return () => {
+      if (watchId) navigator.geolocation.clearWatch(watchId);
+    };
+  }, [isRecordingTrip, ongoingTrip.isReviewing]);
+
+  // Ngăn màn hình tắt (Wake Lock API)
+  useEffect(() => {
+    let visibilityHandler;
+
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLockRef.current = await navigator.wakeLock.request('screen');
+        }
+      } catch (err) {
+        console.error('Lỗi Wake Lock:', err);
+      }
+    };
+
+    const releaseWakeLock = async () => {
+      if (wakeLockRef.current !== null) {
+        try {
+          await wakeLockRef.current.release();
+          wakeLockRef.current = null;
+        } catch (err) {}
+      }
+    };
+
+    if (isRecordingTrip && !ongoingTrip.isReviewing) {
+      requestWakeLock();
+      // Bật lại Wake Lock nếu người dùng vừa ẩn app rồi quay lại
+      visibilityHandler = () => { if (document.visibilityState === 'visible') requestWakeLock(); };
+      document.addEventListener('visibilitychange', visibilityHandler);
+    } else {
+      releaseWakeLock();
+    }
+
+    return () => {
+      if (visibilityHandler) document.removeEventListener('visibilitychange', visibilityHandler);
+      releaseWakeLock();
+    };
+  }, [isRecordingTrip, ongoingTrip.isReviewing]);
+
   const fuelPercentage = Math.round((currentFuelLiters / tankCapacity) * 100);
 
   const reminders = useMemo(() => {
@@ -142,13 +224,13 @@ export default function App() {
     });
     getTrips(); // Tải lại danh sách
     setIsRecordingTrip(false);
-    setOngoingTrip({ timer: 0, from: '', to: '', distance: '0', startCoords: null, isReviewing: false });
+    setOngoingTrip({ timer: 0, from: '', to: '', distance: 0, currentSpeed: 0, startCoords: null, lastCoords: null, weather: null, isReviewing: false });
     setActiveModule(null);
   };
 
   const handleCancelTrip = () => {
     setIsRecordingTrip(false);
-    setOngoingTrip({ timer: 0, from: '', to: '', distance: '0', startCoords: null, isReviewing: false });
+    setOngoingTrip({ timer: 0, from: '', to: '', distance: 0, currentSpeed: 0, startCoords: null, lastCoords: null, weather: null, isReviewing: false });
     setActiveModule(null);
   };
 
@@ -470,7 +552,7 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return (R * c).toFixed(1);
+  return R * c; // Sửa thành trả về số nguyên bản (Number) thay vì string để cộng dồn
 }
 
 // ----------------------------------------------------------------------
@@ -844,6 +926,17 @@ function SettingsItem({ icon, label, value, hasToggle, defaultChecked, color = "
 // ----------------------------------------------------------------------
 // MODALS
 // ----------------------------------------------------------------------
+function getWeatherDescription(code) {
+  if (code === 0) return { text: 'Trời quang', icon: <Sun size={14} /> };
+  if (code >= 1 && code <= 3) return { text: 'Có mây', icon: <Cloud size={14} /> };
+  if (code >= 45 && code <= 48) return { text: 'Sương mù', icon: <Cloud size={14} /> };
+  if (code >= 51 && code <= 67) return { text: 'Có mưa', icon: <CloudRain size={14} /> };
+  if (code >= 71 && code <= 77) return { text: 'Tuyết rơi', icon: <Snowflake size={14} /> };
+  if (code >= 80 && code <= 82) return { text: 'Mưa rào', icon: <CloudRain size={14} /> };
+  if (code >= 95 && code <= 99) return { text: 'Có sấm chớp', icon: <CloudLightning size={14} /> };
+  return { text: 'Không rõ', icon: <Sun size={14} /> };
+}
+
 function TripModule({ isRecording, ongoingTrip, setOngoingTrip, onStart, onStop, onCancelTrip, onClose }) {
   const [isLocating, setIsLocating] = useState(false);
 
@@ -865,13 +958,23 @@ function TripModule({ isRecording, ongoingTrip, setOngoingTrip, onStart, onStop,
             const address = data?.address ? [data.address.road || data.address.suburb, data.address.city || data.address.state].filter(Boolean).join(', ') : `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
             
             if (type === 'start') {
-              setOngoingTrip(p => ({ ...p, from: address, startCoords: { lat: latitude, lon: longitude } }));
+              // Gọi API Open-Meteo để lấy thời tiết hiện tại (Miễn phí, không cần API Key)
+              let weatherData = null;
+              try {
+                const weatherRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,weathercode`);
+                const weatherJson = await weatherRes.json();
+                if (weatherJson.current) {
+                  weatherData = {
+                    temp: Math.round(weatherJson.current.temperature_2m),
+                    code: weatherJson.current.weathercode
+                  };
+                }
+              } catch (e) { console.log("Lỗi tải thời tiết:", e); }
+              
+              setOngoingTrip(p => ({ ...p, from: address, startCoords: { lat: latitude, lon: longitude }, weather: weatherData }));
             } else if (type === 'end') {
-              let dist = '0';
-              if (ongoingTrip.startCoords) {
-                dist = calculateDistance(ongoingTrip.startCoords.lat, ongoingTrip.startCoords.lon, latitude, longitude);
-              }
-              setOngoingTrip(p => ({ ...p, to: address, distance: dist }));
+              // Xóa OSRM API vì quãng đường đã được tự động cộng dồn liên tục ở Background
+              setOngoingTrip(p => ({ ...p, to: address }));
             }
             resolve(true);
           } catch { resolve(false); } finally { setIsLocating(false); }
@@ -926,14 +1029,46 @@ function TripModule({ isRecording, ongoingTrip, setOngoingTrip, onStart, onStop,
         ) : (
           isRecording ? (
             !ongoingTrip.isReviewing ? (
-              <div className="space-y-6 text-center py-6">
+              <div className="space-y-6 text-center py-4">
                  <div className="w-32 h-32 rounded-full border-8 border-blue-50 flex items-center justify-center mx-auto relative recording-pulse">
                    <p className="text-4xl font-black text-blue-600 font-mono">{formatTime(ongoingTrip.timer)}</p>
                  </div>
+                 
+                 <div className="grid grid-cols-2 gap-3">
+                   <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 shadow-sm">
+                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Tốc độ</p>
+                     <p className="text-2xl font-black text-slate-800">{ongoingTrip.currentSpeed || 0} <span className="text-[11px] text-slate-500 font-bold">km/h</span></p>
+                   </div>
+                   <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 shadow-sm">
+                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Quãng đường</p>
+                     <p className="text-2xl font-black text-slate-800">{ongoingTrip.distance || 0} <span className="text-[11px] text-slate-500 font-bold">km</span></p>
+                   </div>
+                 </div>
+
                  <div>
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Điểm xuất phát</p>
-                    <p className="text-sm font-bold text-slate-800">{ongoingTrip.from}</p>
+                    <p className="text-sm font-bold text-slate-800 line-clamp-1">{ongoingTrip.from}</p>
+                    {ongoingTrip.weather && (
+                      <div className="flex items-center justify-center gap-1.5 mt-2 text-slate-500 bg-white border border-slate-100 shadow-sm px-3 py-1.5 rounded-full w-max mx-auto">
+                        {getWeatherDescription(ongoingTrip.weather.code).icon}
+                        <span className="text-[11px] font-bold">{ongoingTrip.weather.temp}°C • {getWeatherDescription(ongoingTrip.weather.code).text}</span>
+                      </div>
+                    )}
                  </div>
+
+                 {/* Bản đồ Google Maps thu nhỏ hiển thị vị trí hiện tại */}
+                 {(ongoingTrip.lastCoords || ongoingTrip.startCoords) && (
+                   <div className="w-full h-[140px] rounded-2xl overflow-hidden shadow-inner border border-slate-100 relative pointer-events-none">
+                     <iframe 
+                       width="100%" 
+                       height="100%" 
+                       style={{ border: 0 }} 
+                       loading="lazy" 
+                       src={`https://maps.google.com/maps?q=${(ongoingTrip.lastCoords || ongoingTrip.startCoords).lat},${(ongoingTrip.lastCoords || ongoingTrip.startCoords).lon}&hl=vi&z=16&output=embed`}
+                     ></iframe>
+                   </div>
+                 )}
+
                  <button onClick={handleStopTracking} className="w-full bg-red-50 text-red-600 font-bold py-5 rounded-3xl shadow-sm active:scale-95 transition-all flex items-center justify-center gap-2 border border-red-100">
                    <Square fill="currentColor" size={20} /> KẾT THÚC HÀNH TRÌNH
                  </button>
