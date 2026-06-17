@@ -539,8 +539,8 @@ function Car360Viewer({ images, onError }) {
 
   return (
     <div 
-      className="relative mt-10 mb-6 h-64 w-full flex items-center justify-center cursor-ew-resize group select-none touch-pan-y"
-      onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} onMouseLeave={handleEnd}
+      className={`relative mt-10 mb-6 h-64 w-full flex items-center justify-center cursor-ew-resize group select-none ${isDragging ? 'touch-none' : 'touch-pan-y'}`}
+      onMouseDown={handleStart} onMouseMove={handleMove} onMouseUp={handleEnd} onMouseLeave={handleEnd}      
       onTouchStart={handleStart} onTouchMove={handleMove} onTouchEnd={handleEnd}
     >
       <div className="absolute inset-0 slanted-stripe -z-10 rounded-3xl opacity-50"></div>
