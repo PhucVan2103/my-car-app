@@ -50,6 +50,7 @@ export default function App() {
   ]);
 
   const [trips, setTrips] = useState([]);
+  const [plannedTrips, setPlannedTrips] = useState([]);
 
   // Trạng thái ghi hành trình
   const [isRecordingTrip, setIsRecordingTrip] = useState(false);
@@ -62,6 +63,7 @@ export default function App() {
     startCoords: null,
     lastCoords: null, // Bổ sung để lưu vết tọa độ trước đó
     weather: null, // Bổ sung state lưu thời tiết
+    plannedTripId: null, // Tham chiếu kế hoạch nếu có
     isReviewing: false
   });
 
@@ -69,6 +71,13 @@ export default function App() {
 
   // Tích hợp Firestore
   const tripsCollectionRef = useMemo(() => collection(db, "trips"), []);
+  const plannedTripsCollectionRef = useMemo(() => collection(db, "plannedTrips"), []);
+
+  const getPlannedTrips = async () => {
+    const q = query(plannedTripsCollectionRef, orderBy("createdAt", "desc"));
+    const data = await getDocs(q);
+    setPlannedTrips(data.docs.map(doc => ({ ...doc.data(), id: doc.id })));
+  };
 
   const getTrips = async () => {
     setLoadingData(true);
@@ -100,6 +109,7 @@ export default function App() {
 
   useEffect(() => {
     getTrips();
+    getPlannedTrips();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hiệu ứng timer
@@ -223,14 +233,27 @@ export default function App() {
       createdAt: serverTimestamp()
     });
     getTrips(); // Tải lại danh sách
+    
+    // Nếu chuyến đi này xuất phát từ 1 kế hoạch, tự động xóa kế hoạch đó
+    if (ongoingTrip.plannedTripId) {
+      await deleteDoc(doc(db, "plannedTrips", ongoingTrip.plannedTripId));
+      getPlannedTrips();
+    }
+    
     setIsRecordingTrip(false);
-    setOngoingTrip({ timer: 0, from: '', to: '', distance: 0, currentSpeed: 0, startCoords: null, lastCoords: null, weather: null, isReviewing: false });
+    setOngoingTrip({ timer: 0, from: '', to: '', distance: 0, currentSpeed: 0, startCoords: null, lastCoords: null, weather: null, plannedTripId: null, isReviewing: false });
     setActiveModule(null);
   };
 
   const handleCancelTrip = () => {
     setIsRecordingTrip(false);
-    setOngoingTrip({ timer: 0, from: '', to: '', distance: 0, currentSpeed: 0, startCoords: null, lastCoords: null, weather: null, isReviewing: false });
+    setOngoingTrip({ timer: 0, from: '', to: '', distance: 0, currentSpeed: 0, startCoords: null, lastCoords: null, weather: null, plannedTripId: null, isReviewing: false });
+    setActiveModule(null);
+  };
+
+  const handleSavePlannedTrip = async (data) => {
+    await addDoc(plannedTripsCollectionRef, { ...data, createdAt: serverTimestamp() });
+    getPlannedTrips();
     setActiveModule(null);
   };
 
@@ -238,6 +261,13 @@ export default function App() {
     const tripDoc = doc(db, "trips", id);
     await deleteDoc(tripDoc);
     getTrips(); // Tải lại danh sách
+    setDeleteConfirm(null);
+  };
+
+  const executeDeletePlannedTrip = async (id) => {
+    const tripDoc = doc(db, "plannedTrips", id);
+    await deleteDoc(tripDoc);
+    getPlannedTrips();
     setDeleteConfirm(null);
   };
 
@@ -305,10 +335,14 @@ export default function App() {
             {activeTab === 'trip' && (
               <TripMainView 
                 trips={trips} 
+                plannedTrips={plannedTrips}
                 loading={loadingData}
                 isRecording={isRecordingTrip} 
                 onStartTrip={() => setActiveModule('trip')} 
-                onRequestDelete={(trip) => setDeleteConfirm(trip)} // Gọi Popup thay vì xóa luôn
+                onPlanTrip={() => setActiveModule('plan_trip')}
+                onStartPlannedTrip={(trip) => { setOngoingTrip(p => ({ ...p, to: trip.to, plannedTripId: trip.id })); setActiveModule('trip'); }}
+                onRequestDelete={(trip) => setDeleteConfirm({ type: 'history', data: trip })} 
+                onRequestDeletePlanned={(trip) => setDeleteConfirm({ type: 'planned', data: trip })}
                 onEditTrip={(trip) => setEditMode({ type: 'edit_trip', data: trip })}
               />
             )}
@@ -350,6 +384,7 @@ export default function App() {
           />
         )}
         {activeModule === 'notifications' && <NotificationModule reminders={reminders} onClose={() => setActiveModule(null)} />}
+        {activeModule === 'plan_trip' && <PlanTripModule onClose={() => setActiveModule(null)} onSave={handleSavePlannedTrip} />}
         
         {editMode === 'profile' && <ProfileModule currentName={userName} currentAvatar={userAvatar} onClose={() => setEditMode(null)} onSave={(n, a) => { setUserName(n); setUserAvatar(a); setEditMode(null); }} />}
         {editMode === 'vehicle_details' && <VehicleModule vehicleName={vehicleName} plateNumber={plateNumber} insuranceData={insuranceData} licenseData={licenseData} registrationData={registrationData} inspectionData={inspectionData} roadFeeData={roadFeeData} hullInsuranceData={hullInsuranceData} onClose={() => setEditMode(null)} onSave={(d) => { setVehicleName(d.name); setPlateNumber(d.plate); setInsuranceData(d.insurance); setLicenseData(d.license); setRegistrationData(d.registration); setInspectionData(d.inspection); setRoadFeeData(d.roadFee); setHullInsuranceData(d.hullInsurance); setEditMode(null); }} />}
@@ -363,11 +398,14 @@ export default function App() {
                 <div className="w-12 h-12 bg-red-50 text-red-500 rounded-full flex items-center justify-center mb-4 mx-auto">
                    <AlertTriangle size={24} />
                 </div>
-                <h3 className="text-lg font-bold text-slate-800 text-center mb-2">Xóa hành trình?</h3>
-                <p className="text-sm text-slate-500 text-center mb-6 leading-relaxed">Bạn có chắc chắn muốn xóa hành trình từ <span className="font-bold text-slate-700">{deleteConfirm.from}</span> đến <span className="font-bold text-slate-700">{deleteConfirm.to}</span>? Dữ liệu này sẽ không thể khôi phục.</p>
+                <h3 className="text-lg font-bold text-slate-800 text-center mb-2">Xóa {deleteConfirm.type === 'planned' ? 'kế hoạch' : 'hành trình'}?</h3>
+                <p className="text-sm text-slate-500 text-center mb-6 leading-relaxed">Bạn có chắc chắn muốn xóa {deleteConfirm.type === 'planned' ? 'kế hoạch' : 'hành trình'} từ <span className="font-bold text-slate-700">{deleteConfirm.data.from}</span> đến <span className="font-bold text-slate-700">{deleteConfirm.data.to}</span>? Dữ liệu này sẽ không thể khôi phục.</p>
                 <div className="flex gap-3">
                    <button onClick={() => setDeleteConfirm(null)} className="flex-1 py-3.5 rounded-2xl bg-slate-100 text-slate-600 font-bold active:scale-95 transition-all">Hủy bỏ</button>
-                   <button onClick={() => executeDeleteTrip(deleteConfirm.id)} className="flex-1 py-3.5 rounded-2xl bg-red-500 text-white font-bold active:scale-95 transition-all shadow-[0_4px_14px_0_rgba(239,68,68,0.39)]">Xóa ngay</button>
+                   <button onClick={() => {
+                     if (deleteConfirm.type === 'history') executeDeleteTrip(deleteConfirm.data.id);
+                     else executeDeletePlannedTrip(deleteConfirm.data.id);
+                   }} className="flex-1 py-3.5 rounded-2xl bg-red-500 text-white font-bold active:scale-95 transition-all shadow-[0_4px_14px_0_rgba(239,68,68,0.39)]">Xóa ngay</button>
                 </div>
              </div>
           </div>
@@ -558,8 +596,9 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 // ----------------------------------------------------------------------
 // TRIP MAIN VIEW
 // ----------------------------------------------------------------------
-function TripMainView({ trips, isRecording, onStartTrip, onRequestDelete, onEditTrip, loading }) {
+function TripMainView({ trips, plannedTrips, loading, isRecording, onStartTrip, onPlanTrip, onStartPlannedTrip, onRequestDelete, onRequestDeletePlanned, onEditTrip }) {
   const totalDistance = trips.reduce((acc, curr) => acc + (Number(curr.distance) || 0), 0).toFixed(1);
+  const [viewMode, setViewMode] = useState('history'); // history | planned
 
   return (
     <div className="p-6 pt-6 animate-in slide-in-from-right-10 duration-500 h-full flex flex-col bg-slate-50/50">
@@ -568,89 +607,135 @@ function TripMainView({ trips, isRecording, onStartTrip, onRequestDelete, onEdit
          <p className="text-slate-400 text-sm font-medium mt-1">Tổng cộng {totalDistance} km đã ghi</p>
        </div>
 
-       <button 
-         onClick={onStartTrip}
-         className={`w-full ${isRecording ? 'bg-amber-500' : 'bg-[#1a56ff]'} text-white rounded-3xl p-4 flex items-center justify-center gap-3 active:scale-95 transition-all shadow-[0_8px_30px_rgb(26,86,255,0.3)] mb-8`}
-       >
-          {isRecording ? <Navigation size={22} className="animate-bounce" /> : <Play size={22} fill="currentColor" />}
-          <span className="font-bold text-sm tracking-wide uppercase">
-            {isRecording ? 'Đang ghi lộ trình...' : 'Bắt đầu ghi lộ trình mới'}
-          </span>
-       </button>
+       <div className="bg-slate-200/50 p-1 rounded-2xl flex mb-6 shrink-0">
+         <button onClick={() => setViewMode('history')} className={`flex-1 py-2 text-sm font-bold rounded-xl transition-all ${viewMode === 'history' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}`}>Lịch sử</button>
+         <button onClick={() => setViewMode('planned')} className={`flex-1 py-2 text-sm font-bold rounded-xl transition-all ${viewMode === 'planned' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 relative'}`}>
+            Kế hoạch {plannedTrips.length > 0 && <div className="absolute top-2 right-6 w-2 h-2 bg-red-500 rounded-full"></div>}
+         </button>
+       </div>
 
-       {/* XÓA BỎ DÒNG: <div className="absolute left-[38px] top-4 bottom-0 w-[2px] bg-slate-100 z-0"></div> KHỎI ĐÂY */}
+       {viewMode === 'history' ? (
+         <button onClick={onStartTrip} className={`w-full ${isRecording ? 'bg-amber-500' : 'bg-[#1a56ff]'} text-white rounded-3xl p-4 flex items-center justify-center gap-3 active:scale-95 transition-all shadow-[0_8px_30px_rgb(26,86,255,0.3)] mb-8`}>
+            {isRecording ? <Navigation size={22} className="animate-bounce" /> : <Play size={22} fill="currentColor" />}
+            <span className="font-bold text-sm tracking-wide uppercase">{isRecording ? 'Đang ghi lộ trình...' : 'Bắt đầu ghi lộ trình mới'}</span>
+         </button>
+       ) : (
+         <button onClick={onPlanTrip} className={`w-full bg-[#1a56ff] text-white rounded-3xl p-4 flex items-center justify-center gap-3 active:scale-95 transition-all shadow-[0_8px_30px_rgb(26,86,255,0.3)] mb-8`}>
+            <Calendar size={22} fill="currentColor" className="text-white/80" />
+            <span className="font-bold text-sm tracking-wide uppercase">Lên kế hoạch mới</span>
+         </button>
+       )}
+
        <div className="flex-1 overflow-y-auto scrollbar-hide -mx-6 px-6 relative">
-          {/* Cấp phát khoảng trống bên trái (pl-10) để vẽ Timeline */}
-          <div className="space-y-6 pb-8 relative z-10 pl-10">
-            {loading ? (
-              <div className="text-center py-10 text-slate-400">
-                 <Loader2 size={32} className="mx-auto mb-3 opacity-50 animate-spin" />
-              </div>
-            ) : trips.length === 0 ? (
-              <div className="text-center py-10 text-slate-400">
-                 <MapIcon size={32} className="mx-auto mb-3 opacity-20" />
-                 <p className="font-bold text-sm">Chưa có dữ liệu</p>
-              </div>
-            ) : (
-              trips.map((t, index) => (
-                <div key={t.id} className="relative group">
-                  {/* ĐƯỜNG KẺ NỐI GIỮA CÁC ĐIỂM (Line-per-item) */}
-                  {/* Chỉ vẽ đường kẻ nếu đây không phải là phần tử cuối cùng */}
-                  {index !== trips.length - 1 && (
-                     <div className="absolute left-[-27px] top-8 bottom-[-24px] w-[2px] bg-slate-200 z-0"></div>
-                  )}
-
-                  {/* DẤU CHẤM TRÒN LỚN (Mốc thời gian bên ngoài) */}
-                  {/* left-[-32px] để lùi ra ngoài, top-[14px] canh vừa vặn ngang dòng ngày tháng */}
-                  <div className="absolute left-[-32px] top-[14px] w-3 h-3 bg-blue-500 rounded-full ring-[4px] ring-slate-100/50 shadow-sm z-10 box-content"></div>
-                  
-                  <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm hover:shadow-md transition-shadow relative">
-                    {/* Header: Date and Actions */}
-                    <div className="flex justify-between items-start mb-4">
-                      <div>
-                        <p className="text-[12px] font-bold text-slate-400">{t.date} • {t.time}</p>
-                        <div className="inline-block mt-2 px-3 py-1.5 bg-[#f0f4ff] rounded-full">
-                          <p className="text-[13px] font-black text-blue-600 leading-none">{t.distance} km</p>
+          {viewMode === 'history' ? (
+            <div className="space-y-6 pb-8 relative z-10 pl-10">
+              {loading ? (
+                <div className="text-center py-10 text-slate-400">
+                   <Loader2 size={32} className="mx-auto mb-3 opacity-50 animate-spin" />
+                </div>
+              ) : trips.length === 0 ? (
+                <div className="text-center py-10 text-slate-400">
+                   <MapIcon size={32} className="mx-auto mb-3 opacity-20" />
+                   <p className="font-bold text-sm">Chưa có dữ liệu</p>
+                </div>
+              ) : (
+                trips.map((t, index) => (
+                  <div key={t.id} className="relative group">
+                    {index !== trips.length - 1 && <div className="absolute left-[-27px] top-8 bottom-[-24px] w-[2px] bg-slate-200 z-0"></div>}
+                    <div className="absolute left-[-32px] top-[14px] w-3 h-3 bg-blue-500 rounded-full ring-[4px] ring-slate-100/50 shadow-sm z-10 box-content"></div>
+                    
+                    <div className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm hover:shadow-md transition-shadow relative">
+                      <div className="flex justify-between items-start mb-4">
+                        <div>
+                          <p className="text-[12px] font-bold text-slate-400">{t.date} • {t.time}</p>
+                          <div className="inline-block mt-2 px-3 py-1.5 bg-[#f0f4ff] rounded-full">
+                            <p className="text-[13px] font-black text-blue-600 leading-none">{t.distance} km</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 border border-slate-100 rounded-2xl p-1 bg-slate-50/50">
+                          <button onClick={() => onEditTrip(t)} className="p-2 text-slate-400 hover:text-blue-500 rounded-xl transition-colors"><Pencil size={16}/></button>
+                          <div className="w-px h-5 bg-slate-200"></div>
+                          <button onClick={() => onRequestDelete(t)} className="p-2 text-slate-400 hover:text-red-500 rounded-xl transition-colors"><Trash2 size={16}/></button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 border border-slate-100 rounded-2xl p-1 bg-slate-50/50">
-                        <button onClick={() => onEditTrip(t)} className="p-2 text-slate-400 hover:text-blue-500 rounded-xl transition-colors"><Pencil size={16}/></button>
-                        <div className="w-px h-5 bg-slate-200"></div>
-                        {/* Gọi hàm onRequestDelete lên App để hiển thị Modal */}
-                        <button onClick={() => onRequestDelete(t)} className="p-2 text-slate-400 hover:text-red-500 rounded-xl transition-colors"><Trash2 size={16}/></button>
+
+                      <div className="flex justify-between items-end">
+                         <div className="flex flex-1 relative">
+                            <div className="flex flex-col items-center mr-3 mt-1.5 w-3 shrink-0">
+                               <div className="w-2 h-2 bg-slate-300 rounded-full shrink-0"></div>
+                               <div className="w-[1.5px] h-[18px] bg-transparent border-l-[1.5px] border-dashed border-slate-300 my-1"></div>
+                               <div className="w-3 h-3 border-[2.5px] border-blue-500 rounded-full bg-white shrink-0"></div>
+                            </div>
+                            <div className="space-y-[11px] flex-1">
+                               <p className="text-[15px] font-bold text-[#2d3748] line-clamp-1 leading-none">{t.from}</p>
+                               <p className="text-[15px] font-bold text-[#2d3748] line-clamp-1 leading-none">{t.to}</p>
+                            </div>
+                         </div>
+                         
+                         <div className="text-right shrink-0 ml-4">
+                           <p className="text-[11px] font-bold text-slate-400 mb-0.5">Thời gian</p>
+                           <p className="text-xl font-black text-[#1a202c] leading-none">{t.duration || '45 phút'}</p>
+                         </div>
                       </div>
                     </div>
-
-                    {/* Content: Locations and Duration */}
-                    <div className="flex justify-between items-end">
-                       <div className="flex flex-1 relative">
-                          {/* TRỤC TỌA ĐỘ BÊN TRONG THẺ (Dấu chấm -> Line đứt -> Điểm đến) */}
-                          <div className="flex flex-col items-center mr-3 mt-1.5 w-3 shrink-0">
-                             {/* Chấm xám nhạt ở trên */}
-                             <div className="w-2 h-2 bg-slate-300 rounded-full shrink-0"></div>
-                             {/* Đường nét đứt (Dashed line) */}
-                             <div className="w-[1.5px] h-[18px] bg-transparent border-l-[1.5px] border-dashed border-slate-300 my-1"></div>
-                             {/* Icon Location (viền xanh lõm trắng) */}
-                             <div className="w-3 h-3 border-[2.5px] border-blue-500 rounded-full bg-white shrink-0"></div>
-                          </div>
-                          {/* Addresses */}
-                          <div className="space-y-[11px] flex-1">
-                             <p className="text-[15px] font-bold text-[#2d3748] line-clamp-1 leading-none">{t.from}</p>
-                             <p className="text-[15px] font-bold text-[#2d3748] line-clamp-1 leading-none">{t.to}</p>
-                          </div>
-                       </div>
-                       
-                       <div className="text-right shrink-0 ml-4">
-                         <p className="text-[11px] font-bold text-slate-400 mb-0.5">Thời gian</p>
-                         <p className="text-xl font-black text-[#1a202c] leading-none">{t.duration || '45 phút'}</p>
-                       </div>
-                    </div>
                   </div>
+                ))
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4 pb-8 relative z-10">
+              {plannedTrips.length === 0 ? (
+                <div className="text-center py-10 text-slate-400">
+                   <MapIcon size={32} className="mx-auto mb-3 opacity-20" />
+                   <p className="font-bold text-sm">Chưa có kế hoạch nào</p>
                 </div>
-              ))
-            )}
-          </div>
+              ) : (
+                plannedTrips.map((t) => (
+                   <div key={t.id} className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm">
+                      <div className="flex justify-between items-start mb-3">
+                         <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg">Dự kiến: {t.date}</span>
+                         <button onClick={() => onRequestDeletePlanned(t)} className="text-slate-400 hover:text-red-500"><Trash2 size={16}/></button>
+                      </div>
+                      <div className="flex flex-col gap-2 mb-4">
+                         <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-slate-300"></div><span className="text-sm font-bold text-slate-800 line-clamp-1">{t.from}</span></div>
+                         <div className="w-0.5 h-3 bg-slate-200 ml-1"></div>
+                         <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-blue-500"></div><span className="text-sm font-bold text-slate-800 line-clamp-1">{t.to}</span></div>
+                      </div>
+                      <button onClick={() => onStartPlannedTrip(t)} className="w-full py-3 bg-slate-50 text-blue-600 font-bold rounded-2xl active:scale-95 transition-all text-sm flex items-center justify-center gap-2">
+                         <Play fill="currentColor" size={16} /> Bắt đầu đi
+                      </button>
+                   </div>
+                ))
+              )}
+            </div>
+          )}
        </div>
+    </div>
+  );
+}
+
+function PlanTripModule({ onClose, onSave }) {
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+
+  return (
+    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm z-[200] flex items-end animate-in fade-in duration-300">
+      <div className="w-full bg-white rounded-t-[40px] p-8 pb-12 shadow-2xl animate-in slide-in-from-bottom-full duration-500">
+        <div className="flex justify-between items-center mb-6">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-blue-50 rounded-2xl text-blue-500"><Calendar size={24}/></div>
+            <h2 className="text-xl font-bold text-slate-800">Lên kế hoạch</h2>
+          </div>
+          <button onClick={onClose} className="p-2 bg-slate-50 rounded-full text-slate-300"><X size={20}/></button>
+        </div>
+        <div className="space-y-4">
+          <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Điểm xuất phát</label><input type="text" placeholder="Nhập điểm đi..." className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={from} onChange={e => setFrom(e.target.value)} /></div>
+          <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Điểm đến</label><input type="text" placeholder="Nhập điểm đến..." className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={to} onChange={e => setTo(e.target.value)} /></div>
+          <div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Ngày dự kiến</label><input type="date" className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none" value={date} onChange={e => setDate(e.target.value)} /></div>
+          <button onClick={() => { if(from && to) onSave({ from, to, date: new Date(date).toLocaleDateString('vi-VN') }); }} className="w-full bg-slate-900 text-white font-bold py-5 rounded-3xl mt-4">LƯU KẾ HOẠCH</button>
+        </div>
+      </div>
     </div>
   );
 }
